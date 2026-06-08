@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(& \"c:\\\\Users\\\\gallo\\\\Downloads\\\\REENKOWDING\\\\LESSGO - Copy \\(2\\)\\\\code\\\\.venv\\\\Scripts\\\\pip.exe\" install ultralytics)"
+    ]
+  }
+}

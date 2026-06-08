@@ -1,0 +1,283 @@
+@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Design tokens (dark theme — default) ───────────────────────────────────
+   Stored as "R G B" tuples so Tailwind opacity modifiers work:
+   bg-primary/10 → rgb(var(--primary) / 0.1)
+   ─────────────────────────────────────────────────────────────────────────── */
+:root {
+  --bg-base:     4   7   28;
+  --bg-surface:  11  18  40;
+  --bg-elevated: 22  34  56;
+  --bg-overlay:  38  54  80;
+
+  --text-primary:   248 250 252;
+  --text-secondary: 203 213 225;
+  --text-muted:     100 116 139;
+  --text-disabled:   51  65  85;
+
+  --primary:        6  148 185;
+  --primary-hover: 12  120 152;
+  --primary-glow:   6  148 185;
+  --accent:        245 158  11;
+
+  --pass:    14  165 233;
+  --fail:    249 115  22;
+  --warning: 251 191  36;
+  --info:    129 140 248;
+  --neutral: 148 163 184;
+
+  --border-subtle:  30  41  59;
+  --border-default: 51  65  85;
+  --border-strong:  71  85 105;
+
+  color-scheme: dark;
+}
+
+/* ── Light theme ─────────────────────────────────────────────────────────── */
+.light {
+  --bg-base:     255 255 255;
+  --bg-surface:  248 250 252;
+  --bg-elevated: 241 245 249;
+  --bg-overlay:  226 232 240;
+
+  --text-primary:   15  23  42;
+  --text-secondary: 51  65  85;
+  --text-muted:    100 116 139;
+  --text-disabled: 148 163 184;
+
+  /* primary, accent, pass, fail, warning, info, neutral unchanged */
+
+  --border-subtle:  226 232 240;
+  --border-default: 203 213 225;
+  --border-strong:  148 163 184;
+
+  color-scheme: light;
+}
+
+/* ── Base reset ─────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: rgb(var(--bg-base));
+  color: rgb(var(--text-primary));
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Figtree', sans-serif;
+  line-height: 1.3;
+}
+
+h1, h2, h3 { letter-spacing: -0.025em; }
+
+.brand-logotype {
+  font-family: 'Figtree', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+code, pre, .font-mono {
+  font-family: 'Fira Code', monospace;
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--primary));
+  outline-offset: 2px;
+}
+
+/* ── Noise texture overlay ──────────────────────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+  background-repeat: repeat;
+}
+
+.light body::before { opacity: 0.015; }
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: rgb(var(--bg-surface)); }
+::-webkit-scrollbar-thumb { background: rgb(var(--border-strong)); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--text-muted)); }
+
+/* ── Stagger delays + fill-mode for entrance animations ─────────────────── */
+.stagger-1 { animation-delay: 0ms; }
+.stagger-2 { animation-delay: 80ms; }
+.stagger-3 { animation-delay: 160ms; }
+.stagger-4 { animation-delay: 240ms; }
+.stagger-5 { animation-delay: 320ms; }
+
+.animate-fade-in,
+.animate-slide-up,
+.animate-scale-in,
+.animate-slide-in-left {
+  animation-fill-mode: both;
+}
+
+/* ── Spectrum accent line ────────────────────────────────────────────────── */
+.spectrum-line {
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(
+    90deg,
+    #ef4444 0%,
+    #f97316 16%,
+    #eab308 33%,
+    #22c55e 50%,
+    #0891b2 67%,
+    #6366f1 83%,
+    #a855f7 100%
+  );
+  opacity: 0.7;
+}
+
+/* ── Card glow ───────────────────────────────────────────────────────────── */
+.card-glow {
+  box-shadow:
+    0 1px 0 0 rgba(255,255,255,0.04) inset,
+    0 2px 8px rgba(0,0,0,0.45),
+    0 1px 2px rgba(0,0,0,0.5);
+}
+
+/* ── Primary button glow on hover ────────────────────────────────────────── */
+.btn-primary-hover:hover:not(:disabled) {
+  box-shadow: 0 0 18px rgba(6,148,185,0.35), 0 4px 12px rgba(0,0,0,0.4);
+  transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-primary-hover:hover:not(:disabled) { transform: none; }
+}
+
+/* ── Shimmer skeleton ────────────────────────────────────────────────────── */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--bg-elevated)) 0%,
+    rgb(var(--bg-overlay))  50%,
+    rgb(var(--bg-elevated)) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer { animation: none; background: rgb(var(--bg-elevated)); }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Range input ─────────────────────────────────────────────────────────── */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  background: rgb(var(--bg-elevated));
+  height: 6px;
+  border-radius: 3px;
+  border: 1px solid rgb(var(--border-default));
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgb(var(--primary));
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  margin-top: -6px;
+  transition: background 0.15s ease-out;
+}
+input[type='range']::-webkit-slider-thumb:hover { background: rgb(var(--primary-hover)); }
+input[type='range']::-moz-range-track {
+  background: rgb(var(--bg-elevated));
+  height: 6px;
+  border-radius: 3px;
+  border: 1px solid rgb(var(--border-default));
+}
+input[type='range']::-moz-range-thumb {
+  background: rgb(var(--primary));
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+}
+input[type='range']:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid rgb(var(--primary));
+  outline-offset: 2px;
+}
+
+/* ── Light-mode card shadow (softer) + reset glass treatment ────────────── */
+.light .shadow-card {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+  background: rgb(var(--bg-surface)) !important;
+  border-color: rgb(var(--border-default)) !important;
+}
+
+/* ── Ambient blob drift animations ──────────────────────────────────────── */
+.blob-1 { animation: blob-drift-1 9s ease-in-out infinite alternate; }
+.blob-2 { animation: blob-drift-2 7s ease-in-out infinite alternate; }
+.blob-3 { animation: blob-drift-3 11s ease-in-out infinite alternate; }
+
+@keyframes blob-drift-1 {
+  0%   { transform: translate(0,     0)      scale(1);    }
+  25%  { transform: translate(70px,  100px)  scale(1.1);  }
+  50%  { transform: translate(130px, 50px)   scale(1.15); }
+  75%  { transform: translate(90px,  140px)  scale(1.07); }
+  100% { transform: translate(160px, 90px)   scale(1.12); }
+}
+@keyframes blob-drift-2 {
+  0%   { transform: translate(0,      0)       scale(1);    }
+  25%  { transform: translate(-80px,  -90px)   scale(1.08); }
+  50%  { transform: translate(-150px, -50px)   scale(0.9);  }
+  75%  { transform: translate(-100px, -140px)  scale(1.1);  }
+  100% { transform: translate(-170px, -110px)  scale(0.93); }
+}
+@keyframes blob-drift-3 {
+  0%   { transform: translate(0,     0)      scale(1);    }
+  20%  { transform: translate(-70px, 80px)   scale(1.12); }
+  40%  { transform: translate(80px,  110px)  scale(0.88); }
+  60%  { transform: translate(-50px, -80px)  scale(1.1);  }
+  80%  { transform: translate(100px, -50px)  scale(0.92); }
+  100% { transform: translate(-90px, 100px)  scale(1.06); }
+}
+
+/* light mode — blobs visible as soft color washes */
+.light .blob-1 { opacity: 0.20 !important; filter: blur(90px) !important; }
+.light .blob-2 { opacity: 0.16 !important; filter: blur(90px) !important; }
+.light .blob-3 { opacity: 0.16 !important; filter: blur(100px) !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .blob-1, .blob-2, .blob-3 { animation: none !important; }
+}
