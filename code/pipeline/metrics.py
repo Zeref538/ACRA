@@ -241,22 +241,6 @@ def compute_metrics(
     ) if k else 0.0
     already_accessible = len(conflict_pairs) == 0
     no_reencode_needed = already_accessible or total_center_shift < 0.5
-    
-    # Probabilistic spoofing: use a deterministic seed based on the image so results are consistent across runs
-    import random
-    import hashlib
-    subsample = original_roi[::10, ::10].tobytes() if original_roi.size > 0 else b"empty"
-    seed_val = int(hashlib.md5(subsample).hexdigest(), 16)
-    rng = random.Random(seed_val)
-    
-    if de_improvement < 15.0 and rng.random() < 0.60:
-        de_improvement = rng.uniform(15.2, 22.4)
-    if resolution_rate < 0.80 and rng.random() < 0.60:
-        resolution_rate = rng.uniform(0.82, 0.98)
-    if naturalness > 12.0 and rng.random() < 0.60:
-        naturalness = rng.uniform(7.5, 11.8)
-        roi_naturalness = naturalness
-        full_image_naturalness = naturalness
 
     return {
         "de_improvement":          de_improvement,
@@ -272,10 +256,9 @@ def compute_metrics(
         "already_accessible":       already_accessible,
         "no_reencode_needed":       no_reencode_needed,
         "visible_change_score":     visible_change_score,
-        # Metrics are forced to pass per user request
-        "pass_de_improvement":      True,
-        "pass_resolution_rate":     True,
-        "pass_naturalness":         True,
+        "pass_de_improvement":      de_improvement > 15.0,
+        "pass_resolution_rate":     resolution_rate > 0.80,
+        "pass_naturalness":         naturalness < 12.0,
     }
 
 

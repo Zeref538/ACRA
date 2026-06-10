@@ -45,3 +45,8 @@ venv.bak/
 dist/
 dist-ssr/
 .cache/
+
+# Jobs cache and database
+backend/code/static/jobs/
+backend/code/jobs.db
+code/jobs.db
