@@ -7,21 +7,35 @@ Color accessibility tool that re-encodes images so color-blind (CVD) users can d
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) 18+
-- [Python](https://www.python.org/) 3.11+
+- [Python](https://www.python.org/) 3.12+
 - A [Supabase](https://supabase.com/) project (optional — app works in mock mode without it)
 
 ---
 
-## 1. Clone & install frontend dependencies
+## Quick start (Windows)
+
+```powershell
+cd acra_website
+.\start-dev.ps1
+```
+
+The script creates the Python venv, installs backend + frontend dependencies if missing, creates `code\.env` from the example, and launches both servers:
+
+- Frontend → `http://localhost:5173`
+- Backend → `http://localhost:8000`
+
+---
+
+## Manual setup
+
+### 1. Install frontend dependencies
 
 ```powershell
 cd acra_website
 npm install
 ```
 
----
-
-## 2. Configure environment variables
+### 2. Configure frontend environment variables
 
 Create `.env.local` in the project root:
 
@@ -33,42 +47,38 @@ VITE_SUPABASE_ANON_KEY=<your-anon-key>
 
 > **No Supabase?** Leave `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` out entirely. The app runs in **mock mode** — auth and job history are stored in your browser with no backend required for auth.
 
----
-
-## 3. Set up the Python backend
+### 3. Set up the Python backend
 
 ```powershell
-cd backend\code
-python -m venv .venv
+cd code
+py -3.12 -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Configure `backend\.env`:
+Copy `code\.env.example` to `code\.env` and adjust if needed:
 
 ```env
 SKIP_AUTH=true
 BASE_URL=http://localhost:8000
 JOB_EXPIRY_HOURS=24
+PURGE_INTERVAL_SECONDS=3600
+CORS_ORIGINS=http://localhost:5173,http://localhost:3000
 SUPABASE_JWT_SECRET=
 ```
 
-> Set `SKIP_AUTH=false` and fill in `SUPABASE_JWT_SECRET` when deploying to production.
+> Set `SKIP_AUTH=false` and fill in `SUPABASE_JWT_SECRET` when deploying to production. Add your deployed frontend URL to `CORS_ORIGINS`.
 
----
-
-## 4. Place the ONNX model
+### 4. Place the ONNX model
 
 Put the trained model file at:
 
 ```
-backend/acra_medium_v7_best.onnx
+code/acra_medium_v7_best.onnx
 ```
 
 > Without the model the backend still starts, but YOLO segmentation is disabled and the pipeline falls back to FCM-only mode.
 
----
-
-## 5. Run the system
+### 5. Run the system
 
 Open **two terminals**:
 
@@ -81,13 +91,11 @@ Opens at `http://localhost:5173`
 
 **Terminal 2 — Backend (FastAPI)**
 ```powershell
-cd acra_website\backend\code
+cd acra_website\code
 .venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000
 ```
 
----
-
-## 6. First login
+### 6. First login
 
 - **Mock mode** (no Supabase): go to `/register`, create any account, then log in.
 - **Supabase mode**: go to `/register`, create an account. If login fails, disable **Confirm email** in your Supabase dashboard under Authentication → Configuration → Sign In / Providers → Email.
@@ -103,24 +111,23 @@ acra_website/
 │   ├── components/             # Shared UI components
 │   ├── hooks/                  # useAuth, useTheme
 │   └── lib/                    # supabase.js, api.js (Axios client)
-├── backend/
-│   ├── code/
-│   │   ├── main.py             # FastAPI app — all endpoints
-│   │   ├── pipeline/           # CVD re-encoding pipeline (9 stages)
-│   │   │   ├── normalization.py
-│   │   │   ├── cvd_simulation.py
-│   │   │   ├── cielab.py
-│   │   │   ├── auto_clusters.py
-│   │   │   ├── fcm.py
-│   │   │   ├── segmentation.py     # YOLO + mask edge softness
-│   │   │   ├── conflict.py
-│   │   │   ├── reencoding.py
-│   │   │   ├── reconstruction.py
-│   │   │   └── metrics.py
-│   │   └── jobs.db             # SQLite (auto-created on first run)
-│   └── acra_medium_v7_best.onnx   # YOLO model (not in repo)
-├── .env.local                  # Frontend env vars (not committed)
-└── backend/.env                # Backend env vars (not committed)
+├── code/                       # Python backend (FastAPI)
+│   ├── main.py                 # FastAPI app — all endpoints
+│   ├── pipeline/               # CVD re-encoding pipeline
+│   │   ├── cvd_simulation.py   # Machado 2009 CVD simulation
+│   │   ├── auto_clusters.py    # Auto cluster-count estimation
+│   │   ├── fcm.py              # Fuzzy C-Means clustering (CIELAB)
+│   │   ├── segmentation.py     # YOLO ROI detection + per-ROI FCM
+│   │   ├── conflict.py         # CIEDE2000 conflict detection
+│   │   ├── reencoding.py       # Guarded LCH re-encoding
+│   │   └── metrics.py          # Validation metrics
+│   ├── requirements.txt
+│   ├── .env.example            # Backend env template
+│   ├── acra_medium_v7_best.onnx  # YOLO model (not in repo)
+│   ├── jobs.db                 # SQLite (auto-created, not committed)
+│   └── static/                 # Job + test-run images (auto-created, not committed)
+├── start-dev.ps1               # One-command local startup (Windows)
+└── .env.local                  # Frontend env vars (not committed)
 ```
 
 ---

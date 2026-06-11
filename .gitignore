@@ -45,8 +45,11 @@ venv.bak/
 dist/
 dist-ssr/
 .cache/
+vite.config.js.timestamp-*.mjs
 
-# Jobs cache and database
-backend/code/static/jobs/
-backend/code/jobs.db
+# Backend runtime output (job images, test runs, SQLite DB)
+code/static/jobs/
+code/static/test-runs/
 code/jobs.db
+code/jobs.db-wal
+code/jobs.db-shm

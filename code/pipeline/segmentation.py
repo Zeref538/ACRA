@@ -271,7 +271,7 @@ def _get_yolo_masks(
 def run_yolo_segmentation(
     img_uint8: np.ndarray,
     img_lab: np.ndarray,
-    model_path: str = "best.pt",
+    model_path: str = "acra_medium_v7_best.onnx",
     conf_threshold: float = 0.25,
     soft_edge_radius: float = 3.0,
     imgsz: Optional[int] = None,

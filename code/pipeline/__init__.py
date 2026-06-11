@@ -127,7 +127,7 @@ def run_full_pipeline(
     n_clusters: int = None,
     progress_callback: Optional[Callable[[int, str, str], None]] = None,
     use_segmentation: bool = True,
-    seg_model: str = "best.pt",
+    seg_model: str = "acra_medium_v7_best.onnx",
     seg_conf: float = 0.25,
     seg_soft: float = 3.5,
     seg_imgsz: Optional[int] = None,

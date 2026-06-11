@@ -1,7 +1,7 @@
 import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './hooks/useAuth'
-import { ToastProvider, useToast } from './components/ui/Toast'
+import { ToastProvider } from './components/ui/Toast'
 import { BulkProvider } from './lib/BulkContext'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'

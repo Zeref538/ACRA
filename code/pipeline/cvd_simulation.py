@@ -70,7 +70,7 @@ def simulate_cvd(
     ----------
     image_linear : np.ndarray
         Linear RGB image, shape (H, W, 3), float32, values in [0, 1].
-        Must be gamma-corrected BEFORE this call (normalization.py output).
+        Must be gamma-corrected (linearized) BEFORE this call.
     severity : float
         CVD severity ∈ [0.0, 1.0].  0 = normal vision, 1 = full dichromacy.
     cvd_type : str

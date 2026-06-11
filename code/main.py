@@ -77,6 +77,15 @@ SKIP_AUTH          = os.getenv("SKIP_AUTH", "true").lower() == "true"
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 BASE_URL           = os.getenv("BASE_URL", "http://localhost:8000")
 JOB_EXPIRY_HOURS   = int(os.getenv("JOB_EXPIRY_HOURS", "24"))
+PURGE_INTERVAL_S   = int(os.getenv("PURGE_INTERVAL_SECONDS", "3600"))
+CORS_ORIGINS       = [
+    o.strip()
+    for o in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:5173,http://localhost:3000",
+    ).split(",")
+    if o.strip()
+]
 MAX_IMAGE_BYTES    = 10 * 1024 * 1024   # 10 MB
 ALLOWED_MIMES      = {
     "image/jpeg", "image/png", "image/webp", "image/gif",
@@ -108,6 +117,9 @@ def _load_yolo() -> None:
 def _get_db() -> sqlite3.Connection:
     conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    # WAL allows concurrent reads while the thread pool writes
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -185,6 +197,17 @@ def _migrate_db() -> None:
 
 
 # ── Lifespan ───────────────────────────────────────────────────────────────────
+async def _purge_loop() -> None:
+    """Periodically remove expired jobs so disk usage stays bounded."""
+    import asyncio
+    while True:
+        try:
+            _purge_expired()
+        except Exception as exc:
+            print(f"[ACRA] Purge error: {exc}")
+        await asyncio.sleep(PURGE_INTERVAL_S)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _init_db()
@@ -192,7 +215,9 @@ async def lifespan(app: FastAPI):
     import asyncio
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(_executor, _load_yolo)
+    purge_task = asyncio.create_task(_purge_loop())
     yield
+    purge_task.cancel()
 
 
 # ── App ────────────────────────────────────────────────────────────────────────
@@ -200,7 +225,7 @@ app = FastAPI(title="ACRA", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000", "*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -360,6 +385,54 @@ def _job_to_response(row: sqlite3.Row) -> Dict[str, Any]:
     }
 
 
+# ── Upload validation (shared by /process and /test-runs) ─────────────────────
+async def _validate_upload(
+    image:               UploadFile,
+    cvd_type:            str,
+    severity:            float,
+    conf_threshold:      float,
+    seg_soft:            float,
+    use_segmentation:    int,
+    n_clusters:          Optional[int],
+    seg_clusters_per_roi: Optional[int],
+    max_dim:             Optional[int] = None,
+) -> tuple[np.ndarray, dict]:
+    """Validate the upload, clamp parameters, and decode the image.
+
+    Returns (img_np, params) where params holds the clamped values.
+    Raises HTTPException on invalid input.
+    """
+    if image.content_type not in ALLOWED_MIMES:
+        raise HTTPException(400, detail="Unsupported image format. Accepted: JPEG, PNG, WebP, GIF, BMP, TIFF, AVIF, HEIC.")
+
+    raw_bytes = await image.read()
+    if len(raw_bytes) > MAX_IMAGE_BYTES:
+        raise HTTPException(400, detail="File size must be under 10 MB.")
+
+    if cvd_type not in ("protan", "deutan"):
+        raise HTTPException(400, detail="cvd_type must be 'protan' or 'deutan'.")
+
+    params = {
+        "severity":       max(0.0, min(1.0, float(severity))),
+        "conf_threshold": max(0.1, min(0.9, float(conf_threshold))),
+        "seg_soft":       max(0.0, min(8.0, float(seg_soft))),
+        "use_seg_bool":   bool(use_segmentation),
+        "n_clusters":     max(2, min(100, int(n_clusters))) if n_clusters is not None else None,
+        "seg_clusters_per_roi":
+            max(2, min(8, int(seg_clusters_per_roi))) if seg_clusters_per_roi is not None else None,
+    }
+
+    try:
+        pil_img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+        if max_dim is not None and max(pil_img.size) > max_dim:
+            pil_img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+        img_np = np.array(pil_img, dtype=np.uint8)
+    except Exception:
+        raise HTTPException(400, detail="Could not decode image file.")
+
+    return img_np, params
+
+
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 @app.get("/health")
@@ -385,33 +458,17 @@ async def process_image(
 ):
     user_id = _extract_user_id(request)
 
-    if image.content_type not in ALLOWED_MIMES:
-        raise HTTPException(400, detail="Unsupported image format. Accepted: JPEG, PNG, WebP, GIF, BMP, TIFF, AVIF, HEIC.")
-
-    raw_bytes = await image.read()
-    if len(raw_bytes) > MAX_IMAGE_BYTES:
-        raise HTTPException(400, detail="File size must be under 10 MB.")
-
-    if cvd_type not in ("protan", "deutan"):
-        raise HTTPException(400, detail="cvd_type must be 'protan' or 'deutan'.")
-
-    severity       = max(0.0, min(1.0, float(severity)))
-    conf_threshold = max(0.1,  min(0.9, float(conf_threshold)))
-    seg_soft       = max(0.0,  min(8.0, float(seg_soft)))
-    use_seg_bool   = bool(use_segmentation)
-    if n_clusters is not None:
-        n_clusters = max(2, min(100, int(n_clusters)))
-    if seg_clusters_per_roi is not None:
-        seg_clusters_per_roi = max(2, min(8, int(seg_clusters_per_roi)))
-
-    try:
-        pil_img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
-        MAX_DIM = 1920
-        if max(pil_img.size) > MAX_DIM:
-            pil_img.thumbnail((MAX_DIM, MAX_DIM), Image.Resampling.LANCZOS)
-        img_np  = np.array(pil_img, dtype=np.uint8)
-    except Exception:
-        raise HTTPException(400, detail="Could not decode image file.")
+    img_np, params = await _validate_upload(
+        image, cvd_type, severity, conf_threshold, seg_soft,
+        use_segmentation, n_clusters, seg_clusters_per_roi,
+        max_dim=1920,
+    )
+    severity             = params["severity"]
+    conf_threshold       = params["conf_threshold"]
+    seg_soft             = params["seg_soft"]
+    use_seg_bool         = params["use_seg_bool"]
+    n_clusters           = params["n_clusters"]
+    seg_clusters_per_roi = params["seg_clusters_per_roi"]
 
     import asyncio
     from functools import partial
@@ -570,32 +627,18 @@ async def create_test_run(
 ):
     user_id = _extract_user_id(request)
 
-    if image.content_type not in ALLOWED_MIMES:
-        raise HTTPException(400, detail="Unsupported image format. Accepted: JPEG, PNG, WebP, GIF, BMP, TIFF, AVIF, HEIC.")
-
-    raw_bytes = await image.read()
-    if len(raw_bytes) > MAX_IMAGE_BYTES:
-        raise HTTPException(400, detail="File size must be under 10 MB.")
-
-    if cvd_type not in ("protan", "deutan"):
-        raise HTTPException(400, detail="cvd_type must be 'protan' or 'deutan'.")
-
-    severity       = max(0.0, min(1.0, float(severity)))
-    conf_threshold = max(0.1,  min(0.9, float(conf_threshold)))
-    seg_soft       = max(0.0,  min(8.0, float(seg_soft)))
-    use_seg_bool   = bool(use_segmentation)
-    if n_clusters is not None:
-        n_clusters = max(2, min(100, int(n_clusters)))
-    if seg_clusters_per_roi is not None:
-        seg_clusters_per_roi = max(2, min(8, int(seg_clusters_per_roi)))
-
     filename = image.filename or "image.jpg"
 
-    try:
-        pil_img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
-        img_np  = np.array(pil_img, dtype=np.uint8)
-    except Exception:
-        raise HTTPException(400, detail="Could not decode image file.")
+    img_np, params = await _validate_upload(
+        image, cvd_type, severity, conf_threshold, seg_soft,
+        use_segmentation, n_clusters, seg_clusters_per_roi,
+    )
+    severity             = params["severity"]
+    conf_threshold       = params["conf_threshold"]
+    seg_soft             = params["seg_soft"]
+    use_seg_bool         = params["use_seg_bool"]
+    n_clusters           = params["n_clusters"]
+    seg_clusters_per_roi = params["seg_clusters_per_roi"]
 
     import asyncio
     from functools import partial
