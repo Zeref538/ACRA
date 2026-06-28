@@ -23,13 +23,7 @@ from .metrics import compute_metrics
 from .auto_clusters import estimate_n_clusters
 
 
-def _srgb_to_linear_clahe_f32(img_uint8):
-    img = img_uint8.astype(np.float32) / 255.0
-    return np.where(img <= 0.04045, img / 12.92,
-                    ((img + 0.055) / 1.055) ** 2.4).astype(np.float32)
-
-
-def _srgb_to_linear_orig_f32(img_uint8):
+def _srgb_to_linear_f32(img_uint8):
     img = img_uint8.astype(np.float32) / 255.0
     return np.where(img <= 0.04045, img / 12.92,
                     ((img + 0.055) / 1.055) ** 2.4).astype(np.float32)
@@ -127,14 +121,14 @@ def run_full_pipeline(
     n_clusters: int = None,
     progress_callback: Optional[Callable[[int, str, str], None]] = None,
     use_segmentation: bool = True,
-    seg_model: str = "best.pt",
+    seg_model: Optional[str] = None,
     seg_conf: float = 0.25,
     seg_soft: float = 3.5,
     seg_imgsz: Optional[int] = None,
     seg_clusters_per_roi: Optional[int] = None,
     conflict_max_clusters: Optional[int] = 40,
     seg_require_red_green: bool = True,
-    max_proc_pixels: int = 900_000,
+    max_proc_pixels: int = 1_500_000,
     fast_conflicts: bool = True,
     compute_validation_metrics: bool = True,
     target_de: float = 28.0,
@@ -203,14 +197,11 @@ def run_full_pipeline(
     report(12, "Normalizing image", "Converting sRGB values to linear RGB.")
     
     def _compute_high_res_lab(img):
-        return _linear_to_lab_f32(_srgb_to_linear_orig_f32(img))
+        return _linear_to_lab_f32(_srgb_to_linear_f32(img))
 
     with ThreadPoolExecutor(max_workers=2) as _ex:
-        # Submit high-res orig computation in background
         future_img_lab_orig_hr = _ex.submit(_compute_high_res_lab, img_uint8)
-        
-        # Concurrently compute downscaled CLAHE
-        future_linear_clahe = _ex.submit(_srgb_to_linear_clahe_f32, img_proc)
+        future_linear_clahe = _ex.submit(_srgb_to_linear_f32, img_proc)
         img_linear_clahe = future_linear_clahe.result()
         _lap("normalize")
 

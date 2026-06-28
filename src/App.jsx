@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { useAuth } from './hooks/useAuth'
 import { ToastProvider, useToast } from './components/ui/Toast'
 import { BulkProvider } from './lib/BulkContext'
+import { isApiConfigured } from './lib/api'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import DashboardPage from './pages/DashboardPage'
@@ -51,11 +52,25 @@ function AppRoutes() {
   )
 }
 
-function MockModeBanner() {
-  if (!MOCK_MODE) return null
+function DevModeBanner() {
+  const authMock = MOCK_MODE
+  const apiMock = !isApiConfigured
+  if (!authMock && !apiMock) return null
+
   return (
-    <div className="fixed bottom-0 inset-x-0 z-40 bg-indigo-500/10 border-t border-indigo-500/30 px-4 py-2 text-xs text-indigo-300 text-center">
-      Running in local mock mode — auth and job data are stored in your browser. No backend required.
+    <div className="fixed bottom-0 inset-x-0 z-40 px-4 py-2 text-xs text-center border-t">
+      {apiMock && (
+        <div className="bg-orange-500/15 border-orange-500/40 text-orange-200 py-1.5 px-3 rounded mb-1">
+          Pipeline offline — uploads are not processed. Add{' '}
+          <code className="font-mono">VITE_API_URL=http://localhost:8000</code> to{' '}
+          <code className="font-mono">.env.local</code>, run the backend, then restart Vite.
+        </div>
+      )}
+      {authMock && (
+        <div className="bg-indigo-500/10 border-indigo-500/30 text-indigo-300 py-1.5">
+          Auth mock mode — accounts are stored in this browser only.
+        </div>
+      )}
     </div>
   )
 }
@@ -65,7 +80,7 @@ export default function App() {
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <ToastProvider>
         <BulkProvider>
-          <MockModeBanner />
+          <DevModeBanner />
           <AppRoutes />
         </BulkProvider>
       </ToastProvider>

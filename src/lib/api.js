@@ -2,7 +2,9 @@ import axios from 'axios'
 import { supabase } from './supabase'
 
 const API_URL = import.meta.env.VITE_API_URL ?? ''
-const API_CONFIGURED = API_URL && !API_URL.includes('your-render-backend')
+export const isApiConfigured =
+  Boolean(API_URL) && !API_URL.includes('your-render-backend')
+const API_CONFIGURED = isApiConfigured
 
 // ---------------------------------------------------------------------------
 // Mock API — used when backend URL is not configured
@@ -116,7 +118,11 @@ api.interceptors.response.use(
 // Exported functions — route to mock or real depending on config
 // ---------------------------------------------------------------------------
 export async function processImage(args) {
-  if (!API_CONFIGURED) return mockApi.processImage(args)
+  if (!API_CONFIGURED) {
+    throw new Error(
+      'Backend not connected. Create .env.local with VITE_API_URL=http://localhost:8000, start the FastAPI server, then restart npm run dev.'
+    )
+  }
   const { file, cvd_type, severity, conf_threshold, seg_soft = 3.0 } = args
   const form = new FormData()
   form.append('image', file)
@@ -218,12 +224,9 @@ function computeMockAnalytics(runs) {
 
 export async function createTestRun(args) {
   if (!API_CONFIGURED) {
-    await new Promise(r => setTimeout(r, 1200))
-    const run  = makeMockTestRun(args)
-    const runs = getMockTestRuns()
-    runs.unshift(run)
-    saveMockTestRuns(runs)
-    return run
+    throw new Error(
+      'Backend not connected. Create .env.local with VITE_API_URL=http://localhost:8000, start the FastAPI server, then restart npm run dev.'
+    )
   }
   const { file, cvd_type, severity, conf_threshold } = args
   const form = new FormData()

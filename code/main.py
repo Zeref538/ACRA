@@ -60,7 +60,6 @@ from fastapi.staticfiles import StaticFiles
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 BASE_DIR  = Path(__file__).parent           # code/
-ONNX_PATH = str(BASE_DIR / "acra_medium_v7_best.onnx")
 STATIC_DIR    = BASE_DIR / "static"
 JOBS_DIR      = STATIC_DIR / "jobs"
 TEST_RUNS_DIR = STATIC_DIR / "test-runs"
@@ -72,11 +71,24 @@ TEST_RUNS_DIR.mkdir(parents=True, exist_ok=True)
 # Add pipeline package to path
 sys.path.insert(0, str(BASE_DIR))
 
+from pipeline.segmentation import resolve_seg_model, _load_model as _load_seg_model
+
+SEG_MODEL_PATH: Optional[str] = resolve_seg_model()
+
 # ── Config from environment ────────────────────────────────────────────────────
 SKIP_AUTH          = os.getenv("SKIP_AUTH", "true").lower() == "true"
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 BASE_URL           = os.getenv("BASE_URL", "http://localhost:8000")
 JOB_EXPIRY_HOURS   = int(os.getenv("JOB_EXPIRY_HOURS", "24"))
+PURGE_INTERVAL_S   = int(os.getenv("PURGE_INTERVAL_SECONDS", "3600"))
+CORS_ORIGINS       = [
+    o.strip()
+    for o in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:5173,http://localhost:3000",
+    ).split(",")
+    if o.strip()
+]
 MAX_IMAGE_BYTES    = 10 * 1024 * 1024   # 10 MB
 ALLOWED_MIMES      = {
     "image/jpeg", "image/png", "image/webp", "image/gif",
@@ -93,21 +105,36 @@ _startup_time   = time.time()
 
 
 def _load_yolo() -> None:
-    global _yolo_model, _model_loaded
+    _ensure_yolo_loaded()
+
+
+def _ensure_yolo_loaded() -> bool:
+    """Load ONNX YOLO weights on first use (startup or first /process request)."""
+    global _yolo_model, _model_loaded, SEG_MODEL_PATH
+    if _model_loaded and _yolo_model is not None and SEG_MODEL_PATH:
+        return True
+    SEG_MODEL_PATH = resolve_seg_model()
+    if not SEG_MODEL_PATH:
+        print("[ACRA] No YOLO model found — place acra_medium_v7_best.onnx in code/ or set SEG_MODEL_PATH")
+        _model_loaded = False
+        return False
     try:
-        from pipeline.segmentation import _load_model
-        _yolo_model   = _load_model(ONNX_PATH)  # primes the shared cache
+        _yolo_model = _load_seg_model(SEG_MODEL_PATH)
         _model_loaded = True
-        print(f"[ACRA] Model loaded: {ONNX_PATH}")
+        print(f"[ACRA] Model loaded: {SEG_MODEL_PATH}")
+        return True
     except Exception as exc:
         print(f"[ACRA] Warning: could not load model: {exc}")
         _model_loaded = False
+        return False
 
 
 # ── Database ───────────────────────────────────────────────────────────────────
 def _get_db() -> sqlite3.Connection:
     conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -185,6 +212,16 @@ def _migrate_db() -> None:
 
 
 # ── Lifespan ───────────────────────────────────────────────────────────────────
+async def _purge_loop() -> None:
+    import asyncio
+    while True:
+        try:
+            _purge_expired()
+        except Exception as exc:
+            print(f"[ACRA] Purge error: {exc}")
+        await asyncio.sleep(PURGE_INTERVAL_S)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _init_db()
@@ -192,7 +229,9 @@ async def lifespan(app: FastAPI):
     import asyncio
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(_executor, _load_yolo)
+    purge_task = asyncio.create_task(_purge_loop())
     yield
+    purge_task.cancel()
 
 
 # ── App ────────────────────────────────────────────────────────────────────────
@@ -200,7 +239,7 @@ app = FastAPI(title="ACRA", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000", "*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -257,9 +296,10 @@ def _map_class(class_name: str) -> str:
 
 # ── YOLO inference for bounding boxes ─────────────────────────────────────────
 def _run_yolo_boxes(img_np: np.ndarray, conf_threshold: float) -> List[Dict]:
+    if not _ensure_yolo_loaded():
+        return []
     try:
-        from pipeline.segmentation import _load_model
-        model = _load_model(ONNX_PATH)
+        model = _load_seg_model(SEG_MODEL_PATH)
     except Exception:
         if _yolo_model is None:
             return []
@@ -300,24 +340,51 @@ def _run_pipeline_sync(
     n_clusters:          Optional[int] = None,
     seg_clusters_per_roi: Optional[int] = None,
 ) -> tuple[np.ndarray, dict, list]:
+    import math
     from pipeline import run_full_pipeline
 
-    use_seg = use_segmentation and _model_loaded and Path(ONNX_PATH).exists()
+    seg_ready = use_segmentation and _ensure_yolo_loaded()
+
+    # YOLO and FCM must run on the same pixel grid; scale box coords back for the UI.
+    orig_h, orig_w = img_np.shape[:2]
+    max_proc = 1_500_000
+    n_orig = orig_h * orig_w
+    if n_orig > max_proc:
+        scale = math.sqrt(max_proc / n_orig)
+        proc_w = max(1, int(orig_w * scale))
+        proc_h = max(1, int(orig_h * scale))
+        seg_img = np.array(
+            Image.fromarray(img_np).resize((proc_w, proc_h), Image.Resampling.BOX),
+            dtype=np.uint8,
+        )
+        sx, sy = orig_w / proc_w, orig_h / proc_h
+    else:
+        seg_img = img_np
+        sx = sy = 1.0
 
     corrected_uint8, raw_metrics = run_full_pipeline(
         img_np,
         severity,
         cvd_type,
         n_clusters=n_clusters,
-        use_segmentation=use_seg,
-        seg_model=ONNX_PATH,
+        use_segmentation=seg_ready,
+        seg_model=SEG_MODEL_PATH,
         seg_conf=conf_threshold,
         seg_soft=seg_soft,
         seg_clusters_per_roi=seg_clusters_per_roi,
-        max_proc_pixels=650_000,
+        max_proc_pixels=max_proc,
     )
 
-    boxes = _run_yolo_boxes(img_np, conf_threshold) if use_seg else []
+    boxes: List[Dict] = []
+    if seg_ready:
+        for box in _run_yolo_boxes(seg_img, conf_threshold):
+            boxes.append({
+                **box,
+                "x1": int(round(box["x1"] * sx)),
+                "y1": int(round(box["y1"] * sy)),
+                "x2": int(round(box["x2"] * sx)),
+                "y2": int(round(box["y2"] * sy)),
+            })
 
     metrics = {
         "delta_e_improvement":      float(raw_metrics.get("de_improvement", 0.0)),
@@ -327,6 +394,8 @@ def _run_pipeline_sync(
         "conflicts_found":          int(raw_metrics.get("n_conflicts_total", 0)),
         "auto_clusters":            int(raw_metrics.get("auto_clusters", 0)),
         "inference_ms":             float(raw_metrics.get("inference_ms", 0.0)),
+        "segmentation_active":      seg_ready,
+        "seg_class_names":          raw_metrics.get("seg_class_names"),
     }
 
     return corrected_uint8, metrics, boxes
@@ -360,14 +429,59 @@ def _job_to_response(row: sqlite3.Row) -> Dict[str, Any]:
     }
 
 
+# ── Upload validation (shared by /process and /test-runs) ─────────────────────
+async def _validate_upload(
+    image:               UploadFile,
+    cvd_type:            str,
+    severity:            float,
+    conf_threshold:      float,
+    seg_soft:            float,
+    use_segmentation:    int,
+    n_clusters:          Optional[int],
+    seg_clusters_per_roi: Optional[int],
+    max_dim:             Optional[int] = None,
+) -> tuple[np.ndarray, dict]:
+    if image.content_type not in ALLOWED_MIMES:
+        raise HTTPException(400, detail="Unsupported image format. Accepted: JPEG, PNG, WebP, GIF, BMP, TIFF, AVIF, HEIC.")
+
+    raw_bytes = await image.read()
+    if len(raw_bytes) > MAX_IMAGE_BYTES:
+        raise HTTPException(400, detail="File size must be under 10 MB.")
+
+    if cvd_type not in ("protan", "deutan"):
+        raise HTTPException(400, detail="cvd_type must be 'protan' or 'deutan'.")
+
+    params = {
+        "severity":       max(0.0, min(1.0, float(severity))),
+        "conf_threshold": max(0.1, min(0.9, float(conf_threshold))),
+        "seg_soft":       max(0.0, min(8.0, float(seg_soft))),
+        "use_seg_bool":   bool(use_segmentation),
+        "n_clusters":     max(2, min(100, int(n_clusters))) if n_clusters is not None else None,
+        "seg_clusters_per_roi":
+            max(2, min(8, int(seg_clusters_per_roi))) if seg_clusters_per_roi is not None else None,
+    }
+
+    try:
+        pil_img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+        if max_dim is not None and max(pil_img.size) > max_dim:
+            pil_img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+        img_np = np.array(pil_img, dtype=np.uint8)
+    except Exception:
+        raise HTTPException(400, detail="Could not decode image file.")
+
+    return img_np, params
+
+
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
     return {
-        "status":         "ok",
-        "model_loaded":   _model_loaded,
-        "uptime_seconds": round(time.time() - _startup_time, 1),
+        "status":              "ok",
+        "model_loaded":        _model_loaded,
+        "model_path":          SEG_MODEL_PATH,
+        "segmentation_ready":  bool(SEG_MODEL_PATH and Path(SEG_MODEL_PATH).is_file()),
+        "uptime_seconds":      round(time.time() - _startup_time, 1),
     }
 
 
@@ -385,33 +499,17 @@ async def process_image(
 ):
     user_id = _extract_user_id(request)
 
-    if image.content_type not in ALLOWED_MIMES:
-        raise HTTPException(400, detail="Unsupported image format. Accepted: JPEG, PNG, WebP, GIF, BMP, TIFF, AVIF, HEIC.")
-
-    raw_bytes = await image.read()
-    if len(raw_bytes) > MAX_IMAGE_BYTES:
-        raise HTTPException(400, detail="File size must be under 10 MB.")
-
-    if cvd_type not in ("protan", "deutan"):
-        raise HTTPException(400, detail="cvd_type must be 'protan' or 'deutan'.")
-
-    severity       = max(0.0, min(1.0, float(severity)))
-    conf_threshold = max(0.1,  min(0.9, float(conf_threshold)))
-    seg_soft       = max(0.0,  min(8.0, float(seg_soft)))
-    use_seg_bool   = bool(use_segmentation)
-    if n_clusters is not None:
-        n_clusters = max(2, min(100, int(n_clusters)))
-    if seg_clusters_per_roi is not None:
-        seg_clusters_per_roi = max(2, min(8, int(seg_clusters_per_roi)))
-
-    try:
-        pil_img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
-        MAX_DIM = 1920
-        if max(pil_img.size) > MAX_DIM:
-            pil_img.thumbnail((MAX_DIM, MAX_DIM), Image.Resampling.LANCZOS)
-        img_np  = np.array(pil_img, dtype=np.uint8)
-    except Exception:
-        raise HTTPException(400, detail="Could not decode image file.")
+    img_np, params = await _validate_upload(
+        image, cvd_type, severity, conf_threshold, seg_soft,
+        use_segmentation, n_clusters, seg_clusters_per_roi,
+        max_dim=1920,
+    )
+    severity             = params["severity"]
+    conf_threshold       = params["conf_threshold"]
+    seg_soft             = params["seg_soft"]
+    use_seg_bool         = params["use_seg_bool"]
+    n_clusters           = params["n_clusters"]
+    seg_clusters_per_roi = params["seg_clusters_per_roi"]
 
     import asyncio
     from functools import partial
@@ -569,33 +667,18 @@ async def create_test_run(
     seg_clusters_per_roi: Optional[int] = Form(None),
 ):
     user_id = _extract_user_id(request)
-
-    if image.content_type not in ALLOWED_MIMES:
-        raise HTTPException(400, detail="Unsupported image format. Accepted: JPEG, PNG, WebP, GIF, BMP, TIFF, AVIF, HEIC.")
-
-    raw_bytes = await image.read()
-    if len(raw_bytes) > MAX_IMAGE_BYTES:
-        raise HTTPException(400, detail="File size must be under 10 MB.")
-
-    if cvd_type not in ("protan", "deutan"):
-        raise HTTPException(400, detail="cvd_type must be 'protan' or 'deutan'.")
-
-    severity       = max(0.0, min(1.0, float(severity)))
-    conf_threshold = max(0.1,  min(0.9, float(conf_threshold)))
-    seg_soft       = max(0.0,  min(8.0, float(seg_soft)))
-    use_seg_bool   = bool(use_segmentation)
-    if n_clusters is not None:
-        n_clusters = max(2, min(100, int(n_clusters)))
-    if seg_clusters_per_roi is not None:
-        seg_clusters_per_roi = max(2, min(8, int(seg_clusters_per_roi)))
-
     filename = image.filename or "image.jpg"
 
-    try:
-        pil_img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
-        img_np  = np.array(pil_img, dtype=np.uint8)
-    except Exception:
-        raise HTTPException(400, detail="Could not decode image file.")
+    img_np, params = await _validate_upload(
+        image, cvd_type, severity, conf_threshold, seg_soft,
+        use_segmentation, n_clusters, seg_clusters_per_roi,
+    )
+    severity             = params["severity"]
+    conf_threshold       = params["conf_threshold"]
+    seg_soft             = params["seg_soft"]
+    use_seg_bool         = params["use_seg_bool"]
+    n_clusters           = params["n_clusters"]
+    seg_clusters_per_roi = params["seg_clusters_per_roi"]
 
     import asyncio
     from functools import partial

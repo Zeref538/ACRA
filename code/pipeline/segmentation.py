@@ -17,6 +17,7 @@ Requires: pip install ultralytics
 
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import List, Tuple, Optional
 from PIL import Image, ImageFilter
 
@@ -26,6 +27,34 @@ except AttributeError:
     _RESAMPLE_NEAREST = Image.NEAREST
 
 _MODEL_CACHE: dict = {}
+_CODE_DIR = Path(__file__).resolve().parent.parent
+_MODEL_CANDIDATES = ("acra_medium_v7_best.onnx", "best.pt")
+
+
+def resolve_seg_model(explicit: Optional[str] = None) -> Optional[str]:
+    """Return the first usable YOLO weights path (absolute)."""
+    import os
+
+    def _try(path: Path) -> Optional[str]:
+        return str(path.resolve()) if path.is_file() else None
+
+    if explicit:
+        p = Path(explicit)
+        found = _try(p) or _try(_CODE_DIR / explicit)
+        if found:
+            return found
+
+    env = os.getenv("SEG_MODEL_PATH", "").strip()
+    if env:
+        found = _try(Path(env)) or _try(_CODE_DIR / env)
+        if found:
+            return found
+
+    for name in _MODEL_CANDIDATES:
+        found = _try(_CODE_DIR / name)
+        if found:
+            return found
+    return None
 
 # Chroma below this marks a pixel/center as near-achromatic (text/ink/paper).
 # Kept in sync with reencoding.NEUTRAL_CHROMA so protection is consistent.
@@ -44,7 +73,11 @@ def _load_model(model_path: str):
                 "YOLOv8 requires the 'ultralytics' package. "
                 "Run: pip install ultralytics"
             ) from exc
-        _MODEL_CACHE[model_path] = YOLO(model_path)
+        # ONNX exports need an explicit task; ACRA weights are detection + box ROIs.
+        if model_path.lower().endswith(".onnx"):
+            _MODEL_CACHE[model_path] = YOLO(model_path, task="detect")
+        else:
+            _MODEL_CACHE[model_path] = YOLO(model_path)
     return _MODEL_CACHE[model_path]
 
 
@@ -207,10 +240,14 @@ def _get_yolo_masks(
     masks_list: List[np.ndarray] = [background]
     class_names: List[str] = ["background"]
 
-    model   = _load_model(model_path)
-    infer_kwargs = {"conf": conf_threshold, "verbose": False}
-    if imgsz is not None:
-        infer_kwargs["imgsz"] = imgsz
+    resolved = resolve_seg_model(model_path)
+    if not resolved:
+        raise FileNotFoundError(
+            f"No YOLO model found. Place acra_medium_v7_best.onnx in {_CODE_DIR} "
+            "or set SEG_MODEL_PATH."
+        )
+    model   = _load_model(resolved)
+    infer_kwargs = {"conf": conf_threshold, "iou": 0.45, "imgsz": imgsz or 640, "verbose": False}
     results = model(img_uint8, **infer_kwargs)[0]
 
     has_seg = results.masks is not None and len(results.masks) > 0
@@ -271,7 +308,7 @@ def _get_yolo_masks(
 def run_yolo_segmentation(
     img_uint8: np.ndarray,
     img_lab: np.ndarray,
-    model_path: str = "best.pt",
+    model_path: Optional[str] = None,
     conf_threshold: float = 0.25,
     soft_edge_radius: float = 3.0,
     imgsz: Optional[int] = None,
