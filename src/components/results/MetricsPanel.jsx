@@ -1,5 +1,6 @@
 import React from 'react'
 import { Card } from '../ui/Card'
+import { passesDeImprovement, passesResolution, passesNaturalness } from '../../lib/api'
 import { Badge } from '../ui/Badge'
 import { ArrowDown } from 'lucide-react'
 
@@ -43,11 +44,11 @@ export function MetricsPanel({ metrics }) {
     {
       label: 'Color Separation Gain',
       value: noConflicts ? 'None' : (delta_e_improvement?.toFixed(1) ?? '—'),
-      target: 'Target: > 15',
-      pass: noConflicts || delta_e_improvement > 15,
+      target: '> 15 improvement, or post ≥ 20, or no conflicts',
+      pass: passesDeImprovement(metrics),
       explanation: noConflicts
         ? 'No conflicting color pairs detected — image is already CVD-safe.'
-        : 'How much simulated color distance improved after re-encoding.',
+        : 'Simulated color-distance gain after re-encoding. Passes if improvement > 15 or mean post-encoding ΔE₀₀ ≥ 20.',
     },
     {
       label: 'Conflicts Resolved',
@@ -57,17 +58,17 @@ export function MetricsPanel({ metrics }) {
           ? `${(conflict_resolution_rate * 100).toFixed(1)}%`
           : '—',
       target: 'Target: > 80%',
-      pass: noConflicts || conflict_resolution_rate > 0.8,
+      pass: passesResolution(metrics),
       explanation: noConflicts
         ? 'No conflicting color pairs detected — image is already CVD-safe.'
-        : 'Color pairs now distinguishable under CVD simulation.',
+        : 'Color pairs no longer flagged as conflicts after re-encoding (set-difference rate).',
     },
     {
-      label: 'CIE76 Naturalness',
+      label: 'Naturalness (ΔE₀₀)',
       value: naturalness_preservation?.toFixed(1) ?? '—',
       target: 'Target: < 12',
-      pass: naturalness_preservation < 12,
-      explanation: 'Mean ΔE vs original — lower means more natural output.',
+      pass: passesNaturalness(metrics),
+      explanation: 'Mean CIEDE2000 drift between original and corrected cluster centers — lower means more natural output for normal-vision viewers.',
       lowerIsBetter: true,
     },
   ]

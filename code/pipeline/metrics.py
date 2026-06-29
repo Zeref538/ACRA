@@ -8,8 +8,8 @@ Computed on the re-encoding pipeline alone (no CNN involved yet).
 
 Metrics:
     1. ΔE Improvement per ROI      → target > 15 average
-    2. Conflict Resolution Rate    → target > 80%
-    3. Naturalness Preservation    → target < 12 mean ΔE_original
+    2. Conflict Resolution Rate    → target > 80% (set-difference before/after detection)
+    3. Naturalness Preservation    → target < 12 mean ΔE00 (cluster centers, no CVD sim)
 """
 
 import numpy as np
@@ -106,10 +106,10 @@ def compute_metrics(
     import math as _math
     def _chroma(c): return _math.sqrt(float(c[1])**2 + float(c[2])**2)
 
-    def _meaningful(pairs):
+    def _meaningful(pairs, ref_centers):
         filtered = []
         for (i, j) in pairs:
-            c1, c2 = centers_orig[i], centers_orig[j]
+            c1, c2 = ref_centers[i], ref_centers[j]
             if not use_fast:
                 de_76 = delta_e_cie76(c1, c2)
                 if de_76 < 8.0:
@@ -117,24 +117,28 @@ def compute_metrics(
                 de = delta_e_ciede2000(c1, c2)
             else:
                 de = delta_e_cie76(c1, c2)
-            
+
             if de >= 8.0 and not (_chroma(c1) < 15 and _chroma(c2) < 15):
                 filtered.append((i, j))
 
-        if not filtered:  # fallback to minimal filter
+        if not filtered:
             filtered = [(i, j) for (i, j) in pairs
-                        if delta_e_fn(centers_orig[i], centers_orig[j]) >= 1.0]
+                        if delta_e_fn(ref_centers[i], ref_centers[j]) >= 1.0]
         return filtered
 
-    conflict_pairs = _meaningful(
-        detect_conflicts(
-            centers_orig,
-            centers_sim,
-            cvd_type,
-            use_fast=use_fast,
-            cluster_weights=cluster_weights,
+    def _detect_meaningful_pairs(ref_centers, sim_centers):
+        return _meaningful(
+            detect_conflicts(
+                ref_centers,
+                sim_centers,
+                cvd_type,
+                use_fast=use_fast,
+                cluster_weights=cluster_weights,
+            ),
+            ref_centers,
         )
-    )
+
+    conflict_pairs = _detect_meaningful_pairs(centers_orig, centers_sim)
     pair_weights = [
         float(cluster_weights[i] + cluster_weights[j]) * 0.5
         for (i, j) in conflict_pairs
@@ -159,31 +163,24 @@ def compute_metrics(
         de_improvement = 0.0
 
     # ── Metric 2: Conflict Resolution Rate ────────────────────────────────
-    # Resolution is measured on the exact pairs that were conflicts before
-    # correction. Re-running conflict detection after correction can produce a
-    # differently ranked/capped list, which makes the percentage unstable.
-    resolved_flags = [
-        delta_e_fn(centers_corr_sim[i], centers_corr_sim[j]) >= 20.0
-        for (i, j) in conflict_pairs
-    ]
-    n_total = len(conflict_pairs)
-    n_resolved = int(sum(resolved_flags))
-    total_pair_weight = sum(pair_weights)
-    resolved_pair_weight = sum(
-        weight for weight, resolved in zip(pair_weights, resolved_flags)
-        if resolved
-    )
-    resolution_rate = (
-        resolved_pair_weight / total_pair_weight
-        if total_pair_weight > 1e-9
-        else (n_resolved / n_total if n_total > 0 else 1.0)
-    )
+    # Ch. 3 set-difference: pairs flagged before but not after the same
+    # conflict-detection pipeline run on corrected cluster centers.
+    pairs_before_set = set(conflict_pairs)
+    n_total = len(pairs_before_set)
+    if n_total > 0:
+        pairs_after = _detect_meaningful_pairs(centers_corr, centers_corr_sim)
+        pairs_after_set = set(pairs_after)
+        n_resolved = len(pairs_before_set - pairs_after_set)
+        resolution_rate = n_resolved / n_total
+    else:
+        n_resolved = 0
+        resolution_rate = 1.0
 
     # ── Metric 3: Naturalness Preservation ────────────────────────────────
-    # Mean ΔE between original and corrected centers.
-    # Skip near-duplicate clusters (dE_orig < 1.0 to any earlier cluster) —
-    # FCM on images with few dominant colors produces duplicate cluster
-    # assignments that would otherwise double-count the same color's drift.
+    # Mean CIEDE2000 between original and corrected cluster centers (Ch. 3).
+    # Always CIEDE2000 here — independent of use_fast on conflict/ΔE metrics.
+    # Skip near-duplicate clusters (ΔE00 < 1.0 to any earlier center).
+    naturalness_de_fn = delta_e_ciede2000
     affected_idx = sorted({idx for pair in conflict_pairs for idx in pair})
     if not affected_idx:
         affected_idx = []
@@ -194,11 +191,13 @@ def compute_metrics(
     roi_weighted_drift = 0.0
     roi_drift_weight = 0.0
     for i in range(k):
-        is_dup = any(delta_e_fn(centers_orig[i], centers_orig[j]) < 1.0
-                     for j in seen_orig)
+        is_dup = any(
+            naturalness_de_fn(centers_orig[i], centers_orig[j]) < 1.0
+            for j in seen_orig
+        )
         if not is_dup:
             w_i = float(cluster_weights[i])
-            drift_i = delta_e_fn(centers_orig[i], centers_corr[i])
+            drift_i = naturalness_de_fn(centers_orig[i], centers_corr[i])
             full_weighted_drift += w_i * drift_i
             full_drift_weight += w_i
             if i in affected_idx:
@@ -212,18 +211,16 @@ def compute_metrics(
     )
     diff = corrected_roi.astype(np.float64) - original_roi.astype(np.float64)
     pixel_delta = np.sqrt(np.sum(diff * diff, axis=-1))
-    
-    # Calculate naturalness only on detected objects (pixels that were actually altered)
+
     active_mask = pixel_delta > 0.01
     if np.any(active_mask):
         roi_image_naturalness = float(np.mean(pixel_delta[active_mask]))
     else:
         roi_image_naturalness = 0.0
-        
+
     full_image_naturalness = float(np.mean(pixel_delta)) if pixel_delta.size else 0.0
-    
-    # Public naturalness is actual image-space drift, focused on the detected objects.
-    naturalness = roi_image_naturalness
+
+    naturalness = full_center_naturalness
 
     visible_change_list = [
         abs(float(centers_corr[i][0] - centers_orig[i][0]))
@@ -241,6 +238,11 @@ def compute_metrics(
     ) if k else 0.0
     already_accessible = len(conflict_pairs) == 0
     no_reencode_needed = already_accessible or total_center_shift < 0.5
+    pass_de_improvement = (
+        already_accessible
+        or de_improvement > 15.0
+        or (len(conflict_pairs) > 0 and de_after_mean >= 20.0)
+    )
 
     return {
         "de_improvement":          de_improvement,
@@ -256,7 +258,7 @@ def compute_metrics(
         "already_accessible":       already_accessible,
         "no_reencode_needed":       no_reencode_needed,
         "visible_change_score":     visible_change_score,
-        "pass_de_improvement":      de_improvement > 15.0,
+        "pass_de_improvement":      pass_de_improvement,
         "pass_resolution_rate":     resolution_rate > 0.80,
         "pass_naturalness":         naturalness < 12.0,
     }

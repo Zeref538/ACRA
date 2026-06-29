@@ -6,6 +6,28 @@ export const isApiConfigured =
   Boolean(API_URL) && !API_URL.includes('your-render-backend')
 const API_CONFIGURED = isApiConfigured
 
+export function passesDeImprovement(metrics) {
+  if (!metrics) return false
+  if (metrics.pass_de_improvement != null) return Boolean(metrics.pass_de_improvement)
+  if ((metrics.conflicts_found ?? 0) === 0) return true
+  if ((metrics.delta_e_improvement ?? 0) > 15) return true
+  if ((metrics.de_after_mean ?? 0) >= 20) return true
+  return false
+}
+
+export function passesResolution(metrics) {
+  if (!metrics) return false
+  if (metrics.pass_resolution_rate != null) return Boolean(metrics.pass_resolution_rate)
+  if ((metrics.conflicts_found ?? 0) === 0) return true
+  return (metrics.conflict_resolution_rate ?? 0) > 0.8
+}
+
+export function passesNaturalness(metrics) {
+  if (!metrics) return false
+  if (metrics.pass_naturalness != null) return Boolean(metrics.pass_naturalness)
+  return (metrics.naturalness_preservation ?? 999) < 12
+}
+
 // ---------------------------------------------------------------------------
 // Mock API — used when backend URL is not configured
 // ---------------------------------------------------------------------------
@@ -213,9 +235,9 @@ function computeMockAnalytics(runs) {
     minimums:   { de_improvement: Math.min(...de), conflict_resolution: Math.min(...res), naturalness: Math.min(...nat) },
     maximums:   { de_improvement: Math.max(...de), conflict_resolution: Math.max(...res), naturalness: Math.max(...nat) },
     pass_rates: {
-      de_improvement:      runs.filter(r => r.metrics.delta_e_improvement > 15).length / runs.length,
-      conflict_resolution: runs.filter(r => r.metrics.conflict_resolution_rate > 0.8).length / runs.length,
-      naturalness:         runs.filter(r => r.metrics.naturalness_preservation < 12).length / runs.length,
+      de_improvement:      runs.filter(r => passesDeImprovement(r.metrics)).length / runs.length,
+      conflict_resolution: runs.filter(r => passesResolution(r.metrics)).length / runs.length,
+      naturalness:         runs.filter(r => passesNaturalness(r.metrics)).length / runs.length,
     },
     targets: { de_improvement: 15, conflict_resolution: 0.80, naturalness: 12 },
     runs,

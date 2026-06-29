@@ -6,7 +6,7 @@ import { Badge } from '../components/ui/Badge'
 import { Skeleton } from '../components/ui/Skeleton'
 import { CVDControls } from '../components/upload/CVDControls'
 import { useToast } from '../components/ui/Toast'
-import { createTestRun, getTestAnalytics, deleteTestRun, clearTestRuns } from '../lib/api'
+import { createTestRun, getTestAnalytics, deleteTestRun, clearTestRuns, passesDeImprovement, passesResolution, passesNaturalness } from '../lib/api'
 import {
   FlaskConical, UploadCloud, X, CheckCircle, AlertCircle, Loader2,
   TrendingUp, TrendingDown, Minus, Trash2, RefreshCw, Download,
@@ -33,7 +33,7 @@ function diagnose(analytics) {
       severity: dePassRate < 0.2 ? 'critical' : 'high',
       metric:   'ΔE Improvement',
       value:    deAvg.toFixed(1),
-      target:   `> ${targets.de_improvement}`,
+      target:   '> 15, post ≥ 20, or no conflicts',
       passRate: dePassRate,
       summary:  `Average improvement is ${deAvg.toFixed(1)} — ${deGap.toFixed(1)} below target`,
       cause: deAvg < 5
@@ -165,9 +165,9 @@ function RunRow({ run, onDelete }) {
   const [expanded, setExpanded] = useState(false)
   const m = run.metrics
   const passes = [
-    m.delta_e_improvement > 15,
-    m.conflict_resolution_rate > 0.8,
-    m.naturalness_preservation < 12,
+    passesDeImprovement(m),
+    passesResolution(m),
+    passesNaturalness(m),
   ]
   const passCount = passes.filter(Boolean).length
 
@@ -192,7 +192,7 @@ function RunRow({ run, onDelete }) {
           </Badge>
         </td>
         <td className="px-3 py-2.5 font-mono text-xs text-text-primary text-right">
-          <span className={m.delta_e_improvement > 15 ? 'text-sky-400' : 'text-orange-400'}>
+          <span className={passesDeImprovement(m) ? 'text-sky-400' : 'text-orange-400'}>
             {m.delta_e_improvement?.toFixed(1)}
           </span>
         </td>
@@ -371,9 +371,9 @@ export default function TestLabPage() {
         m.delta_e_improvement, m.conflict_resolution_rate,
         m.naturalness_preservation,
         m.conflicts_found ?? 0, m.boxes_detected ?? 0, m.inference_ms ?? 0,
-        m.delta_e_improvement > 15 ? 1 : 0,
-        m.conflict_resolution_rate > 0.8 ? 1 : 0,
-        m.naturalness_preservation < 12 ? 1 : 0,
+        passesDeImprovement(m) ? 1 : 0,
+        passesResolution(m) ? 1 : 0,
+        passesNaturalness(m) ? 1 : 0,
         r.created_at,
       ].join(',')
     })
@@ -443,7 +443,7 @@ export default function TestLabPage() {
             { label: 'Images tested', value: total },
             { label: 'ΔE pass rate',  value: total ? `${(analytics.pass_rates.de_improvement * 100).toFixed(0)}%` : '—', danger: analytics && analytics.pass_rates.de_improvement < 0.5 },
             { label: 'Conflict res.', value: total ? `${(analytics.pass_rates.conflict_resolution * 100).toFixed(0)}%` : '—', danger: analytics && analytics.pass_rates.conflict_resolution < 0.5 },
-            { label: 'CIE76 Naturalness',   value: total ? `${(analytics.pass_rates.naturalness * 100).toFixed(0)}%` : '—', danger: analytics && analytics.pass_rates.naturalness < 0.5 },
+            { label: 'Naturalness (ΔE₀₀)',   value: total ? `${(analytics.pass_rates.naturalness * 100).toFixed(0)}%` : '—', danger: analytics && analytics.pass_rates.naturalness < 0.5 },
           ].map(({ label, value, danger }) => (
             <Card key={label} className="p-4">
               <p className="text-xs text-text-muted">{label}</p>
@@ -566,7 +566,7 @@ export default function TestLabPage() {
                       {item.status === 'error'      && <AlertCircle size={14} className="text-fail shrink-0" />}
                       {item.status === 'done' && item.metrics && (
                         <div className="flex gap-3 text-[11px] font-mono mr-1">
-                          <span className={item.metrics.delta_e_improvement > 15 ? 'text-sky-400' : 'text-orange-400'} title="ΔE Improvement (target > 15)">
+                          <span className={passesDeImprovement(item.metrics) ? 'text-sky-400' : 'text-orange-400'} title="ΔE Improvement (pass: > 15, post ≥ 20, or no conflicts)">
                             ΔE:{item.metrics.delta_e_improvement?.toFixed(1)}
                           </span>
                           <span className={item.metrics.conflict_resolution_rate > 0.8 ? 'text-sky-400' : 'text-orange-400'} title="Resolution Rate (target > 80%)">

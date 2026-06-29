@@ -1,5 +1,6 @@
 import React from 'react'
 import { useNavigate } from 'react-router-dom'
+import { passesDeImprovement, passesResolution, passesNaturalness } from '../../lib/api'
 import { Card } from '../ui/Card'
 import { Badge } from '../ui/Badge'
 import { ExpiryCountdown } from '../ui/ExpiryCountdown'
@@ -22,9 +23,9 @@ function timeAgo(iso) {
 function MetricDots({ metrics }) {
   if (!metrics) return null
   const checks = [
-    metrics.delta_e_improvement > 15,
-    metrics.conflict_resolution_rate > 0.8,
-    metrics.naturalness_preservation < 12,
+    passesDeImprovement(metrics),
+    passesResolution(metrics),
+    passesNaturalness(metrics),
   ]
   return (
     <div className="flex items-center gap-1" aria-label="Metric summary">

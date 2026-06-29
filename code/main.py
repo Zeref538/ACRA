@@ -388,6 +388,8 @@ def _run_pipeline_sync(
 
     metrics = {
         "delta_e_improvement":      float(raw_metrics.get("de_improvement", 0.0)),
+        "de_before_mean":           float(raw_metrics.get("de_before_mean", 0.0)),
+        "de_after_mean":            float(raw_metrics.get("de_after_mean", 0.0)),
         "conflict_resolution_rate": float(raw_metrics.get("conflict_resolution_rate", 0.0)),
         "naturalness_preservation": float(raw_metrics.get("naturalness_preservation", 0.0)),
         "boxes_detected":           len(boxes),
@@ -396,6 +398,10 @@ def _run_pipeline_sync(
         "inference_ms":             float(raw_metrics.get("inference_ms", 0.0)),
         "segmentation_active":      seg_ready,
         "seg_class_names":          raw_metrics.get("seg_class_names"),
+        "already_accessible":       bool(raw_metrics.get("already_accessible", False)),
+        "pass_de_improvement":      bool(raw_metrics.get("pass_de_improvement", False)),
+        "pass_resolution_rate":     bool(raw_metrics.get("pass_resolution_rate", False)),
+        "pass_naturalness":         bool(raw_metrics.get("pass_naturalness", False)),
     }
 
     return corrected_uint8, metrics, boxes
@@ -734,9 +740,9 @@ async def create_test_run(
                 int(metrics.get("conflicts_found", 0)),
                 int(metrics.get("boxes_detected",  0)),
                 float(metrics.get("inference_ms",  0)),
-                1 if de  > 15   else 0,
-                1 if res > 0.80 else 0,
-                1 if nat < 12   else 0,
+                1 if metrics.get("pass_de_improvement") else 0,
+                1 if metrics.get("pass_resolution_rate") else 0,
+                1 if metrics.get("pass_naturalness") else 0,
             ),
         )
         conn.commit()

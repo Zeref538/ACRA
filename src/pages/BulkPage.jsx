@@ -9,7 +9,7 @@ import {
   Layers, UploadCloud, X, CheckCircle, AlertCircle,
   Loader2, Download, Trash2, FileImage, ChevronDown, ChevronUp,
 } from 'lucide-react'
-import { useBulk, MAX_FILES, MAX_BYTES, ALLOWED } from '../lib/BulkContext'
+import { passesDeImprovement, passesResolution, passesNaturalness } from '../lib/api'
 
 function fmtEta(seconds) {
   if (seconds < 60)  return `~${Math.ceil(seconds)}s`
@@ -44,9 +44,9 @@ function StatusBadge({ status }) {
 function MetricDots({ metrics }) {
   if (!metrics) return null
   const checks = [
-    metrics.delta_e_improvement      > 15,
-    metrics.conflict_resolution_rate > 0.8,
-    metrics.naturalness_preservation < 12,
+    passesDeImprovement(metrics),
+    passesResolution(metrics),
+    passesNaturalness(metrics),
   ]
   const labels = ['ΔE', 'Res', 'Nat']
   return (
@@ -215,9 +215,9 @@ function QueueRow({ item, onRemove, isRunning }) {
         <>
           <div className="px-4 py-3 bg-bg-elevated border-t border-border-subtle grid grid-cols-3 gap-3">
             {[
-              { label: 'ΔE Improvement',    value: item.result.metrics.delta_e_improvement?.toFixed(1),               pass: item.result.metrics.delta_e_improvement > 15 },
-              { label: 'Conflicts Resolved', value: `${(item.result.metrics.conflict_resolution_rate * 100).toFixed(0)}%`, pass: item.result.metrics.conflict_resolution_rate > 0.8 },
-              { label: 'CIE76 Color Drift',        value: item.result.metrics.naturalness_preservation?.toFixed(1),           pass: item.result.metrics.naturalness_preservation < 12 },
+              { label: 'ΔE Improvement',    value: item.result.metrics.delta_e_improvement?.toFixed(1),               pass: passesDeImprovement(item.result.metrics) },
+              { label: 'Conflicts Resolved', value: `${(item.result.metrics.conflict_resolution_rate * 100).toFixed(0)}%`, pass: passesResolution(item.result.metrics) },
+              { label: 'Naturalness (ΔE₀₀)',        value: item.result.metrics.naturalness_preservation?.toFixed(1),           pass: passesNaturalness(item.result.metrics) },
             ].map(({ label, value, pass }) => (
               <div key={label} className="flex flex-col gap-0.5">
                 <span className="text-xs text-text-muted">{label}</span>
