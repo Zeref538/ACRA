@@ -10,6 +10,7 @@ import {
   Loader2, Download, Trash2, FileImage, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import { passesDeImprovement, passesResolution, passesNaturalness } from '../lib/api'
+import { useBulk, MAX_FILES, MAX_BYTES, ALLOWED } from '../lib/BulkContext'
 
 function fmtEta(seconds) {
   if (seconds < 60)  return `~${Math.ceil(seconds)}s`
