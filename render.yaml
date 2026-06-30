@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: acra-backend
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r code/requirements.txt
+    startCommand: cd code && uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: SKIP_AUTH
+        value: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false        # set this in the Render dashboard
+      - key: BASE_URL
+        sync: false        # set to your Render service URL, e.g. https://acra-backend.onrender.com
+      - key: CORS_ORIGINS
+        sync: false        # set to your Vercel frontend URL, e.g. https://acra.vercel.app
+      - key: JOB_EXPIRY_HOURS
+        value: 24
+      - key: PURGE_INTERVAL_SECONDS
+        value: 3600
+      - key: DATA_DIR
+        value: /data
+    disk:
+      name: acra-data
+      mountPath: /data
+      sizeGB: 1

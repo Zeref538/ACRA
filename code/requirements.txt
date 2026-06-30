@@ -6,7 +6,7 @@ Pillow>=10.0.0
 ultralytics>=8.2.0
 onnxruntime>=1.18.0
 onnx>=1.16.0
-python-jose[cryptography]==3.3.0
+PyJWT>=2.8.0
 python-dotenv==1.0.1
 scipy>=1.11.0
 scikit-learn>=1.4.0

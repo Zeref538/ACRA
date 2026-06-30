@@ -60,10 +60,12 @@ from fastapi.staticfiles import StaticFiles
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 BASE_DIR  = Path(__file__).parent           # code/
-STATIC_DIR    = BASE_DIR / "static"
+# DATA_DIR can be overridden to a persistent mount (e.g. /data on Render Disk)
+DATA_DIR      = Path(os.getenv("DATA_DIR", str(BASE_DIR)))
+STATIC_DIR    = DATA_DIR / "static"
 JOBS_DIR      = STATIC_DIR / "jobs"
 TEST_RUNS_DIR = STATIC_DIR / "test-runs"
-DB_PATH       = BASE_DIR / "jobs.db"
+DB_PATH       = DATA_DIR / "jobs.db"
 
 JOBS_DIR.mkdir(parents=True, exist_ok=True)
 TEST_RUNS_DIR.mkdir(parents=True, exist_ok=True)
