@@ -249,7 +249,7 @@ side by side:
 | Service | Role |
 |---|---|
 | Supabase | User authentication |
-| Render | Python/FastAPI backend hosting |
+| Hugging Face Spaces | Python/FastAPI backend hosting (16 GB RAM, Docker) |
 | Vercel | React/Vite frontend hosting |
 | Git / GitHub | Source control |
 
@@ -266,11 +266,11 @@ User uploads image
   └── POST /process → Render backend
                 │
                 ▼
-          FastAPI (Render)
+          FastAPI (Hugging Face Spaces)
           ├── Verifies JWT via Supabase secret
           ├── Runs 9-stage CVD pipeline
-          ├── Saves original + corrected images to /data/static/ (Render Disk)
-          ├── Stores job record in SQLite (jobs.db on Render Disk)
+          ├── Saves original + corrected images to static/ (ephemeral)
+          ├── Stores job record in SQLite (ephemeral)
           └── Returns job JSON with image URLs + metrics
                 │
                 ▼

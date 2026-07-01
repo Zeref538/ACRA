@@ -1,16 +1,16 @@
 # ACRA — Full Deployment Guide
-### Supabase · Render · Vercel
+### Supabase · Hugging Face Spaces · Vercel
 
 Do these three sections **in order**. You will collect values in Supabase first, then paste
-them into Render and Vercel.
+them into Hugging Face Spaces and Vercel.
 
 ---
 
 ## Prerequisites
 
-- GitHub account with this repo pushed (Render and Vercel both pull from GitHub)
+- GitHub account with this repo pushed (`Zeref538/ACRA` — public)
 - A Supabase account (free) → supabase.com
-- A Render account (free) → render.com
+- A Hugging Face account (free) → huggingface.co
 - A Vercel account (free) → vercel.com
 
 ---
@@ -23,179 +23,139 @@ ACRA uses Supabase for user login and registration only. You need three values f
 ### Step 1 — Create a new project
 
 1. Go to **supabase.com** and sign in.
-2. On the dashboard you'll see **"New project"** — click it.
-3. Fill in the form:
-   - **Name**: `acra` (or anything you want)
-   - **Database Password**: generate a strong one and save it somewhere — you won't need
-     it for ACRA, but losing it locks you out of the database.
-   - **Region**: pick the one closest to you (e.g. East US, Southeast Asia).
+2. Click **"New project"**.
+3. Fill in:
+   - **Name**: `acra`
+   - **Database Password**: generate a strong one and save it.
+   - **Region**: pick the one closest to you.
    - **Pricing plan**: Free.
-4. Click **"Create new project"**. It takes about 60 seconds to provision.
+4. Click **"Create new project"**. Takes about 60 seconds.
 
 ### Step 2 — Collect your API keys
 
-1. Once the project is ready, click the gear icon **"Project Settings"** in the
-   left sidebar (bottom of the sidebar).
-2. In the Settings sidebar, click **"API"**.
-3. You will see two sections:
-   - **Project URL** — copy the URL that looks like
-     `https://abcdefghijkl.supabase.co`. This is your `VITE_SUPABASE_URL`.
-   - **Project API Keys** — there are two keys listed.
-     Copy the one labelled **`anon` `public`**. This is your `VITE_SUPABASE_ANON_KEY`.
-4. Scroll down on the same API page to **"JWT Settings"**.
-   Copy the value under **"JWT Secret"**. This is your `SUPABASE_JWT_SECRET` for
-   the Render backend.
+1. Click the gear icon **"Project Settings"** in the left sidebar.
+2. Click **"API"**.
+3. Copy:
+   - **Project URL** → `https://xxxx.supabase.co` — this is `VITE_SUPABASE_URL`
+   - **anon public key** — this is `VITE_SUPABASE_ANON_KEY`
+4. Scroll down to **"JWT Settings"** → copy **"JWT Secret"** — this is `SUPABASE_JWT_SECRET`.
 
-> Save all three values — you will paste them into Render and Vercel in the next parts.
+> Save all three values — you will paste them into Hugging Face and Vercel below.
 
 ### Step 3 — Disable email confirmation
 
-ACRA's Register page calls `supabase.auth.signUp()` and expects users to be able to
-log in immediately without clicking a confirmation email.
+1. Left sidebar → **"Authentication"** → **"Providers"**.
+2. Click **"Email"** → toggle off **"Confirm email"** → **"Save"**.
 
-1. In the left sidebar, click **"Authentication"**.
-2. In the Authentication sub-menu click **"Providers"** (under "Configuration").
-3. Find **"Email"** at the top of the list. Click on it to expand.
-4. Toggle off **"Confirm email"**.
-5. Click **"Save"**.
+> Without this step users cannot log in immediately after registering.
 
-> Users who register on your deployed ACRA site can now log in straight away.
+### ⚠️ Free tier warning — project pause
 
-### Step 4 (Optional) — Enable Google login
+Supabase free projects **auto-pause after 7 days of inactivity**. If nobody visits ACRA
+for a week, logins will fail until you manually unpause in the dashboard.
 
-The login page has a "Continue with Google" button. If you want it to work:
-
-1. In the Authentication sidebar, click **"Providers"**.
-2. Find **"Google"** in the list and click to expand.
-3. Toggle it **on**.
-4. You will need a Google OAuth Client ID and Secret from
-   **console.cloud.google.com → APIs & Services → Credentials**.
-5. Paste those values into the Google provider fields and save.
-6. Add your Vercel URL to the **"Redirect URLs"** field inside the Google provider:
-   `https://your-project.vercel.app/**`
-
-> Without this step the Google button still appears but does nothing. The email/password
-> path is fully functional without it.
+Fix: set up a free Uptime Robot ping to your Supabase health URL every 3 days:
+```
+https://YOUR-PROJECT-REF.supabase.co/auth/v1/health
+```
 
 ### YouTube tutorials — Supabase
 
-Search on YouTube for:
-- **"Supabase auth setup tutorial 2024"** — the official Supabase channel
-  (@Supabase) has a "Auth in 7 minutes" video that walks through exactly what
-  you did above, including disabling email confirmation.
-- **"Supabase with React full tutorial"** — Laith Harb's tutorial covers
-  signUp / signInWithPassword / onAuthStateChange and shows the Project Settings →
-  API page where you find your keys.
+Search: **"Supabase auth setup tutorial 2024"** — the official Supabase channel has an
+"Auth in 7 minutes" walkthrough that covers exactly Steps 1–3 above.
 
 ---
 
-## PART 2 — Render (Python / FastAPI Backend)
+## PART 2 — Hugging Face Spaces (Python / FastAPI Backend)
 
-### Step 1 — Push your repo to GitHub
+Hugging Face Spaces is used instead of Render because the free tier provides **16 GB RAM
+and 2 vCPU** — enough to load the ONNX model and run the full YOLOv8 + FCM pipeline.
 
-If you haven't already:
+### Step 1 — Create a Hugging Face account
+
+Go to **huggingface.co** and sign up if you don't have an account.
+
+### Step 2 — Create a new Space
+
+1. Click your profile picture (top-right) → **"New Space"**.
+2. Fill in:
+   - **Owner**: your HF username
+   - **Space name**: `acra-backend`
+   - **License**: MIT (or any)
+   - **SDK**: **Docker**
+   - **Visibility**: **Public** (required for free tier)
+3. Click **"Create Space"**.
+
+HF creates a git repository at:
+```
+https://huggingface.co/spaces/YOUR-HF-USERNAME/acra-backend
+```
+
+### Step 3 — Push your code to the Space
+
+The Space is a git repo. You push your ACRA code directly to it.
+
+Open a terminal in your ACRA folder and run:
 
 ```powershell
-cd ACRA
-git init
-git add .
-git commit -m "Initial commit"
-git remote add origin https://github.com/YOUR-USERNAME/acra.git
-git push -u origin main
+git remote add hf https://huggingface.co/spaces/YOUR-HF-USERNAME/acra-backend
+git push hf main
 ```
 
-### Step 2 — Create a new Web Service
+When prompted for credentials:
+- **Username**: your HF username
+- **Password**: your HF **Access Token** (not your account password)
+  - Get one at: huggingface.co → Settings → Access Tokens → New token → Write access
 
-1. Go to **dashboard.render.com** and sign in.
-2. Click the **"New +"** button in the top-right corner.
-3. Select **"Web Service"** from the dropdown.
-4. On the next screen, click **"Connect a repository"**.
-5. If this is your first time, click **"Connect GitHub"** and authorize Render to
-   access your account. Then search for and select your `acra` repo.
-6. Click **"Connect"**.
+> The Dockerfile in the repo instructs HF to download the ONNX model from GitHub during
+> the build, so you do not need git-lfs. The push will be fast (text files only).
 
-### Step 3 — Configure the service settings
+### Step 4 — Watch the build
 
-Render will auto-detect some settings. Verify and fill in:
+1. Go to your Space page: `huggingface.co/spaces/YOUR-HF-USERNAME/acra-backend`
+2. Click the **"Logs"** tab to watch the build.
+3. The first build takes **5–10 minutes** — it installs NumPy, Pillow, Ultralytics,
+   ONNX Runtime, and downloads the 99 MB ONNX model.
+4. When the build finishes the status changes from **"Building"** to **"Running"**.
 
-| Setting | Value |
-|---|---|
-| **Name** | `acra-backend` (or anything) |
-| **Region** | Match your Supabase region if possible |
-| **Branch** | `main` |
-| **Root Directory** | leave blank |
-| **Runtime** | `Python 3` |
-| **Build Command** | `pip install -r code/requirements.txt` |
-| **Start Command** | `cd code && uvicorn main:app --host 0.0.0.0 --port $PORT` |
-| **Instance Type** | Free |
+### Step 5 — Add environment secrets
 
-> Render detects `render.yaml` in the repo and may pre-fill the build and start
-> commands automatically. If it does, verify they match the table above.
+1. On your Space page, click the **"Settings"** tab.
+2. Scroll to **"Repository secrets"**.
+3. Click **"New secret"** for each of the following:
 
-### Step 4 — Add environment variables
-
-Scroll down to the **"Environment Variables"** section (still on the same creation
-page, before you click Deploy).
-
-Click **"Add Environment Variable"** for each of the following:
-
-| Key | Value |
+| Name | Value |
 |---|---|
 | `SKIP_AUTH` | `false` |
-| `SUPABASE_JWT_SECRET` | the JWT Secret you copied from Supabase Part 1 Step 2 |
-| `BASE_URL` | leave blank for now — you'll fill it in after the first deploy |
-| `CORS_ORIGINS` | leave blank for now — you'll fill it in after Vercel is deployed |
+| `SUPABASE_JWT_SECRET` | the JWT Secret you copied from Supabase |
+| `BASE_URL` | `https://YOUR-HF-USERNAME-acra-backend.hf.space` |
+| `CORS_ORIGINS` | leave blank for now — fill in after Vercel is deployed |
 | `JOB_EXPIRY_HOURS` | `24` |
 | `PURGE_INTERVAL_SECONDS` | `3600` |
-| `DATA_DIR` | `/data` |
 
-> `BASE_URL` and `CORS_ORIGINS` require your Render and Vercel URLs which you don't
-> have yet. That's fine — the service will still start. You'll update them in Step 6.
+> Secrets are injected as environment variables at runtime. The Space restarts
+> automatically each time you save a new secret.
 
-### Step 5 — Add a Persistent Disk
+### Step 6 — Find your Space URL
 
-Without a disk, your SQLite database and all processed job images are wiped every
-time Render restarts or redeploys the service. The disk keeps them alive.
-
-1. Still on the creation page, scroll down to **"Disks"**.
-2. Click **"Add Disk"**.
-3. Fill in:
-   - **Name**: `acra-data`
-   - **Mount Path**: `/data`
-   - **Size**: `1 GB` (this is the minimum and is sufficient)
-4. Click **"Save"**.
-
-> Note: Render's persistent disk is a paid add-on at $0.25/GB/month. The free plan
-> does not include it. If cost is a concern, the app still works without it — jobs
-> simply won't survive a restart (they expire in 24 hours anyway, so for a portfolio
-> demo this is acceptable). To skip the disk: remove `DATA_DIR` from env vars and
-> do not add the disk.
-
-### Step 6 — Deploy and get your backend URL
-
-1. Click **"Create Web Service"** at the bottom of the page.
-2. Render will start building. You can watch the build logs in real time. It takes
-   2–5 minutes on first deploy (it's installing numpy, Pillow, ultralytics, etc.).
-3. Once the build succeeds, Render shows a URL at the top of the service page — it
-   looks like `https://acra-backend.onrender.com`. **Copy this URL.**
-
-Now update the two env vars you left blank:
-
-4. Click the **"Environment"** tab on your Render service.
-5. Find `BASE_URL` and set it to: `https://acra-backend.onrender.com`
-   (your actual URL, not this example).
-6. Leave `CORS_ORIGINS` for now — you'll have the Vercel URL after Part 3.
-7. Click **"Save Changes"**. Render will redeploy automatically.
-
-### Step 7 — Verify the backend is running
-
-Open your backend URL in a browser with `/health` appended:
-
+Your backend URL follows this pattern:
 ```
-https://acra-backend.onrender.com/health
+https://YOUR-HF-USERNAME-acra-backend.hf.space
 ```
 
-You should see a JSON response like:
+Example: if your HF username is `zeref538`, the URL is:
+```
+https://zeref538-acra-backend.hf.space
+```
+
+### Step 7 — Verify the backend
+
+Open this URL in your browser:
+```
+https://YOUR-HF-USERNAME-acra-backend.hf.space/health
+```
+
+You should see:
 ```json
 {
   "status": "ok",
@@ -204,21 +164,16 @@ You should see a JSON response like:
 }
 ```
 
-If `model_loaded` is `false`, the ONNX model is missing. See the note below.
+If `model_loaded` is `false`, the ONNX model failed to download during build.
+Check the Logs tab for a `wget` error.
 
-> **Free tier sleep**: Render's free tier spins the service down after 15 minutes of
-> inactivity. The first request after it sleeps takes ~30 seconds to wake up. This is
-> normal for free tier and fine for a portfolio project.
+> **Free tier sleep**: The Space pauses after **48 hours** of inactivity (much more
+> forgiving than other free tiers). Wake-up takes about 30 seconds.
 
-### YouTube tutorials — Render
+### YouTube tutorials — Hugging Face Spaces
 
-Search on YouTube for:
-- **"Deploy FastAPI on Render 2024"** — several short (8–12 min) tutorials show
-  exactly the New Web Service → Connect GitHub → Build Command → Start Command flow
-  you followed above. Look for ones that also show adding environment variables.
-- **"Render.com tutorial Python web service"** — the official Render YouTube channel
-  (@render-com) has a "Deploy a Python Web Service" video that covers free tier,
-  env vars, and the persistent disk add-on.
+Search: **"Deploy FastAPI Hugging Face Spaces Docker 2024"** — several short tutorials
+show exactly the New Space → Docker SDK → push code → set secrets flow above.
 
 ---
 
@@ -227,90 +182,66 @@ Search on YouTube for:
 ### Step 1 — Import your repo
 
 1. Go to **vercel.com** and sign in.
-2. On your Vercel dashboard, click **"Add New…"** → **"Project"**.
-3. Under **"Import Git Repository"**, find your `acra` repo and click **"Import"**.
+2. Click **"Add New…"** → **"Project"**.
+3. Find `Zeref538/ACRA` and click **"Import"**.
 
 ### Step 2 — Configure the project
 
-Vercel will auto-detect Vite. On the configuration screen:
+Vercel auto-detects Vite. Verify:
 
 | Setting | Value |
 |---|---|
 | **Framework Preset** | Vite (auto-detected) |
-| **Root Directory** | `.` (the repo root — do not change) |
+| **Root Directory** | `./` (do not change) |
 | **Build Command** | `npm run build` (auto-filled) |
 | **Output Directory** | `dist` (auto-filled) |
-| **Install Command** | `npm install` (auto-filled) |
-
-> Do not set the Root Directory to `src` or `code`. It must be `.` (the project root
-> where `package.json` and `vite.config.js` live).
 
 ### Step 3 — Add environment variables
 
-Still on the same configuration screen, scroll down to **"Environment Variables"**.
+Click **"Import .env"** and paste:
 
-Click **"Add"** and enter each variable:
+```
+VITE_API_URL=https://YOUR-HF-USERNAME-acra-backend.hf.space
+VITE_SUPABASE_URL=https://YOUR-PROJECT-REF.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key-here
+```
 
-| Name | Value |
-|---|---|
-| `VITE_API_URL` | `https://acra-backend.onrender.com` — your Render URL from Part 2 |
-| `VITE_SUPABASE_URL` | the Project URL from Supabase Part 1 Step 2 |
-| `VITE_SUPABASE_ANON_KEY` | the anon/public key from Supabase Part 1 Step 2 |
-
-Make sure the **"Environment"** checkboxes for each variable include at minimum
-**"Production"**. You can also tick "Preview" and "Development" if you want them
-available in those contexts too.
+Replace all three values with your real ones from Parts 1 and 2.
 
 ### Step 4 — Deploy
 
-1. Click **"Deploy"**.
-2. Vercel runs `npm install` then `npm run build` (Vite). This takes about 60 seconds.
-3. When it finishes you'll see a **"Congratulations!"** screen with your deployed URL,
-   something like `https://acra-abc123.vercel.app`.
-4. **Copy this URL** — you need it for the final step.
+Click **"Deploy"**. Vercel runs `npm install` then `npm run build`. Takes about 60 seconds.
 
-### Step 5 — Give Render your Vercel URL (CORS)
+You'll get a URL like `https://acra-abc123.vercel.app`. **Copy it.**
 
-The FastAPI backend only accepts requests from origins listed in `CORS_ORIGINS`. Your
-Vercel URL isn't in that list yet, so API calls from the deployed frontend would be
-blocked.
+### Step 5 — Give HF Spaces your Vercel URL (CORS)
 
-1. Go back to your Render service dashboard.
-2. Click the **"Environment"** tab.
-3. Find the `CORS_ORIGINS` variable and set it to your Vercel URL:
+The FastAPI backend only accepts requests from origins listed in `CORS_ORIGINS`. Without
+your Vercel URL, every API call from the frontend will be blocked.
+
+1. Go to your HF Space → **Settings** → **Repository secrets**.
+2. Find `CORS_ORIGINS` → set it to your Vercel URL:
    ```
    https://acra-abc123.vercel.app
    ```
-   If you have a custom domain, add both separated by a comma:
-   ```
-   https://acra-abc123.vercel.app,https://yourdomain.com
-   ```
-4. Click **"Save Changes"**. Render redeploys (takes ~1 minute).
+3. Save. The Space restarts automatically (~30 seconds).
 
 ### Step 6 — Test the full stack
 
-1. Open your Vercel URL in a browser.
-2. You should see the ACRA login page with the three spectral dots and the brand name.
-3. Click **"Register"** and create an account with an email and password.
-4. You should be logged in and redirected to the Dashboard.
-5. Upload an image, select a CVD type (Deutan or Protan), and click Process.
-6. The app should call your Render backend and return a corrected image with metrics.
+1. Open your Vercel URL.
+2. You should see the ACRA login page with the spectral dots.
+3. Register with an email and password.
+4. Upload an image, select a CVD type, click Process.
+5. The app calls your HF Space backend and returns a corrected image with metrics.
 
-> If the page loads but the Upload page shows "Backend not connected" — double-check
-> that `VITE_API_URL` in Vercel exactly matches your Render URL (no trailing slash,
-> `https://` not `http://`). After changing a Vercel env var you must trigger a
-> redeployment: go to **Deployments → your latest deployment → ⋮ → Redeploy**.
+> **If uploads fail with "Backend not connected"**: check that `VITE_API_URL` in Vercel
+> exactly matches your HF Space URL (no trailing slash, `https://` not `http://`).
+> After fixing a Vercel env var, redeploy: Deployments → latest → ⋮ → Redeploy.
 
 ### YouTube tutorials — Vercel
 
-Search on YouTube for:
-- **"Deploy Vite React app to Vercel 2024"** — many short (5–8 min) tutorials cover
-  exactly the Import → Configure → Environment Variables → Deploy flow above.
-  Look for ones that show adding env vars on the initial setup screen.
-- **"Vercel environment variables tutorial"** — the official Vercel YouTube channel
-  (@Vercel) has videos specifically on environment variables, including how to
-  redeploy after changing them and the difference between Production / Preview /
-  Development environments.
+Search: **"Deploy Vite React app to Vercel 2024"** — covers the Import → Configure
+→ Environment Variables → Deploy flow shown above.
 
 ---
 
@@ -320,19 +251,18 @@ Search on YouTube for:
 
 | Variable | Where to get it |
 |---|---|
-| `VITE_API_URL` | Your Render service URL |
+| `VITE_API_URL` | Your HF Space URL |
 | `VITE_SUPABASE_URL` | Supabase → Project Settings → API → Project URL |
 | `VITE_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → anon public key |
 
-### Render (backend)
+### Hugging Face Space (backend secrets)
 
 | Variable | Value / source |
 |---|---|
 | `SKIP_AUTH` | `false` |
 | `SUPABASE_JWT_SECRET` | Supabase → Project Settings → API → JWT Secret |
-| `BASE_URL` | Your Render service URL |
+| `BASE_URL` | Your HF Space URL |
 | `CORS_ORIGINS` | Your Vercel URL |
-| `DATA_DIR` | `/data` |
 | `JOB_EXPIRY_HOURS` | `24` |
 | `PURGE_INTERVAL_SECONDS` | `3600` |
 
@@ -341,23 +271,30 @@ Search on YouTube for:
 ## Troubleshooting
 
 **Login fails after registration**
-→ Confirm that **"Confirm email"** is disabled in Supabase Authentication → Providers → Email.
+→ Confirm **"Confirm email"** is disabled in Supabase → Authentication → Providers → Email.
+
+**Login suddenly stops working (was working before)**
+→ Supabase free project auto-paused after 7 days of inactivity.
+→ Go to supabase.com → your project → click "Restore project".
 
 **"Backend not connected" banner on the Upload page**
-→ `VITE_API_URL` in Vercel is wrong or missing. Must be exactly your Render URL.
-→ Redeploy on Vercel after fixing (Deployments → Redeploy).
+→ `VITE_API_URL` in Vercel is wrong or missing. Must exactly match your HF Space URL.
+→ After fixing: Vercel → Deployments → Redeploy.
 
 **API calls blocked / CORS error in browser console**
-→ `CORS_ORIGINS` in Render does not include your Vercel URL. Update it and let Render redeploy.
+→ `CORS_ORIGINS` in HF Space secrets does not include your Vercel URL.
+→ Update the secret and wait ~30 seconds for the Space to restart.
 
 **`model_loaded: false` on `/health`**
-→ The ONNX file is missing from the deploy. The app still works in FCM-only mode.
-→ If the file is in git, check the Render build logs for download errors.
+→ The ONNX model failed to download during the Docker build.
+→ Check the Space's Logs tab for a `wget` error on the GitHub raw URL.
+→ The app still works in FCM-only mode (less spatially precise but functional).
 
-**Render service URL returns 502 or times out**
-→ Free tier is waking up from sleep. Wait 30 seconds and try again.
-→ If it consistently fails, check Render logs under the "Logs" tab on your service.
+**HF Space URL returns 503 or times out**
+→ Space is waking from the 48-hour inactivity pause. Wait ~30 seconds and retry.
+→ If consistently failing, check the Logs tab in your Space for runtime errors.
 
-**Images in job history disappear after a Render restart**
-→ You don't have a Disk attached. Add one in Render → your service → Disks
-   with mount path `/data` and make sure `DATA_DIR=/data` is set.
+**Job images disappear after a Space restart**
+→ This is expected on the free tier — storage is ephemeral.
+→ Jobs expire in 24 hours anyway, so this only matters if the Space restarts mid-session.
+→ For persistent storage, add HF Persistent Storage ($5/month) and set `DATA_DIR=/data`.
